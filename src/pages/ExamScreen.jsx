@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import QuestionPalette from '../components/QuestionPalette';
-import { AlertTriangle, Clock, Maximize, CheckCircle2 } from 'lucide-react';
+import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send, CheckCircle2 } from 'lucide-react';
 
 export default function ExamScreen() {
   const { id } = useParams();
@@ -52,10 +52,9 @@ export default function ExamScreen() {
 
       const randomizedQuestions = shuffle(qData).map((q) => {
         const indexedOptions = q.options.map((opt, idx) => ({ text: opt, originalIndex: idx }));
-        const shuffled = shuffle(indexedOptions);
         return {
           ...q,
-          shuffledOptions: shuffled,
+          shuffledOptions: shuffle(indexedOptions),
         };
       });
 
@@ -74,6 +73,7 @@ export default function ExamScreen() {
     if (user) fetchExam();
   }, [id, user, navigate]);
 
+  // Countdown timer
   useEffect(() => {
     if (timeLeft <= 0 || loading) return;
     const timer = setInterval(() => {
@@ -145,22 +145,33 @@ export default function ExamScreen() {
     navigate(`/result/${id}`);
   };
 
-  if (loading) return <div className="p-8 text-center">Preparing secure exam session...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-zinc-100 flex items-center justify-center font-medium text-zinc-600">
+        Initializing Secure Environment...
+      </div>
+    );
+  }
 
+  // Fullscreen Enforcer Gate
   if (!isFullscreen && strikes === 0) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6">
-        <div className="max-w-md w-full bg-slate-800 p-8 rounded-2xl border border-slate-700 text-center shadow-xl">
-          <Maximize className="w-12 h-12 text-indigo-400 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">{exam.title}</h1>
-          <p className="text-slate-400 text-sm mb-6">
-            This is a monitored exam. Fullscreen mode is mandatory. Any attempt to exit or switch tabs will count as a violation (Max 3 strikes).
-          </p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 text-white p-6">
+        <div className="max-w-lg w-full bg-zinc-900 border border-zinc-800 p-8 rounded-2xl text-center shadow-2xl space-y-6">
+          <div className="w-14 h-14 bg-teal-950 border border-teal-800 text-teal-400 rounded-xl flex items-center justify-center mx-auto">
+            <Maximize2 className="w-7 h-7" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-bold text-zinc-100 tracking-tight">{exam.title}</h1>
+            <p className="text-zinc-400 text-xs leading-relaxed">
+              This assessment enforces a monitored testing sandbox. Exiting fullscreen, switching workspaces, or copying questions triggers automated violation strikes.
+            </p>
+          </div>
           <button
             onClick={requestFullscreen}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 font-semibold rounded-xl transition shadow-lg"
+            className="w-full py-3 bg-teal-700 hover:bg-teal-600 text-white font-semibold rounded-xl transition shadow-md shadow-teal-950 cursor-pointer"
           >
-            Enter Fullscreen & Start
+            Launch Fullscreen Session
           </button>
         </div>
       </div>
@@ -170,47 +181,74 @@ export default function ExamScreen() {
   const currentQ = questions[currentIndex];
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
+  const isFinalTwoMinutes = timeLeft <= 120;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col select-none relative">
+    <div className="min-h-screen bg-zinc-100 flex flex-col select-none relative">
+      {/* Violation Overlay */}
       {isWarningActive && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex flex-col items-center justify-center text-white p-6">
-          <AlertTriangle className="w-16 h-16 text-amber-400 mb-4 animate-bounce" />
-          <h2 className="text-2xl font-bold mb-2">Proctoring Warning ({strikes}/3)</h2>
-          <p className="text-slate-300 text-center max-w-md mb-6">
-            Fullscreen exit or tab-switch detected. Return to fullscreen immediately. 3 violations will terminate your test.
-          </p>
-          <button
-            onClick={requestFullscreen}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 font-semibold rounded-lg shadow-md"
-          >
-            Resume Test
-          </button>
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md z-50 flex flex-col items-center justify-center text-white p-6">
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
+            <div className="w-14 h-14 bg-amber-950 border border-amber-800 text-amber-400 rounded-xl flex items-center justify-center mx-auto animate-pulse">
+              <AlertOctagon className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold text-zinc-100">Security Breach Detected</h2>
+            <p className="text-zinc-400 text-xs leading-relaxed">
+              Window focus lost or fullscreen exited. Violation <strong className="text-amber-400">{strikes} of 3</strong> has been permanently logged.
+            </p>
+            <button
+              onClick={requestFullscreen}
+              className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 font-semibold rounded-xl text-white transition shadow-sm cursor-pointer"
+            >
+              Resume Examination
+            </button>
+          </div>
         </div>
       )}
 
-      <header className="bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center sticky top-0">
-        <div>
-          <h2 className="font-bold text-slate-800">{exam.title}</h2>
-          <span className="text-xs text-red-600 font-medium">Strikes: {strikes} / 3</span>
-        </div>
-        <div className="flex items-center gap-2 bg-slate-100 px-4 py-1.5 rounded-lg border border-slate-200 font-mono text-slate-800 font-bold">
-          <Clock className="w-4 h-4 text-indigo-600" />
-          {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
+      {/* Proctored HUD Bar */}
+      <header className="bg-white border-b border-zinc-200 px-6 py-3.5 sticky top-0 z-30 shadow-xs">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <h2 className="font-bold text-zinc-900 text-sm tracking-tight">{exam.title}</h2>
+            <span className="text-[11px] font-semibold bg-zinc-100 text-zinc-600 border border-zinc-200 px-2 py-0.5 rounded">
+              Strikes: <span className={strikes > 0 ? "text-red-600 font-bold" : "text-zinc-800"}>{strikes} / 3</span>
+            </span>
+          </div>
+
+          {/* Dynamic Urgency Timer */}
+          <div
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border font-mono text-sm font-bold transition-colors ${
+              isFinalTwoMinutes
+                ? 'bg-red-50 border-red-200 text-red-700 animate-pulse'
+                : 'bg-amber-50 border-amber-200 text-amber-800'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>
+              {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
+            </span>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="md:col-span-3 space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
-              <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-md uppercase">
+      {/* Main Examination Workspace */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+        {/* Question Frame */}
+        <div className="lg:col-span-3 space-y-6">
+          <div className="bg-white border border-zinc-200/80 rounded-2xl p-7 shadow-xs space-y-6">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <span className="text-xs font-bold text-teal-800 uppercase tracking-wider bg-teal-50 px-2.5 py-1 rounded-md">
                 Question {currentIndex + 1} of {questions.length} • {currentQ.type}
               </span>
             </div>
-            <p className="text-lg font-medium text-slate-900 mb-6">{currentQ.question_text}</p>
 
-            <div className="space-y-3">
+            <p className="text-zinc-900 font-semibold text-lg leading-relaxed">
+              {currentQ.question_text}
+            </p>
+
+            {/* Option Cards */}
+            <div className="space-y-3 pt-2">
               {currentQ.shuffledOptions.map((opt, oIdx) => {
                 const isSelected =
                   currentQ.type === 'multiple'
@@ -221,10 +259,10 @@ export default function ExamScreen() {
                   <label
                     key={oIdx}
                     onClick={() => handleSelectOption(opt.originalIndex, currentQ.type)}
-                    className={`flex items-center gap-3 p-4 rounded-xl border transition-all cursor-pointer ${
+                    className={`flex items-center gap-3.5 p-4 rounded-xl border text-sm font-medium transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-indigo-600 bg-indigo-50/50 text-indigo-900 font-medium'
-                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                        ? 'border-teal-700 bg-teal-50/60 text-zinc-950 shadow-xs'
+                        : 'border-zinc-200 bg-white hover:bg-zinc-50/80 text-zinc-700'
                     }`}
                   >
                     <input
@@ -232,43 +270,45 @@ export default function ExamScreen() {
                       name={`q_${currentIndex}`}
                       checked={isSelected}
                       onChange={() => {}}
-                      className="w-4 h-4 text-indigo-600 focus:ring-0"
+                      className="w-4 h-4 accent-teal-700 focus:ring-0"
                     />
-                    <span>{opt.text}</span>
+                    <span className="flex-1">{opt.text}</span>
                   </label>
                 );
               })}
             </div>
           </div>
 
-          <div className="flex justify-between items-center">
+          {/* Action Row */}
+          <div className="flex justify-between items-center pt-1">
             <button
               disabled={currentIndex === 0}
               onClick={() => setCurrentIndex((p) => p - 1)}
-              className="px-5 py-2.5 rounded-lg border border-slate-300 font-medium text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-40"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-zinc-300 font-semibold text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-30 disabled:pointer-events-none transition text-xs cursor-pointer"
             >
-              Previous
+              <ArrowLeft className="w-4 h-4" /> Previous
             </button>
+
             {currentIndex < questions.length - 1 ? (
               <button
                 onClick={() => setCurrentIndex((p) => p + 1)}
-                className="px-6 py-2.5 rounded-lg bg-indigo-600 font-medium text-white hover:bg-indigo-700"
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-teal-800 hover:bg-teal-900 font-semibold text-white transition text-xs shadow-xs cursor-pointer"
               >
-                Next
+                Next <ArrowRight className="w-4 h-4" />
               </button>
             ) : (
               <button
                 onClick={() => submitTest(false, strikes)}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-emerald-600 font-semibold text-white hover:bg-emerald-700 shadow-md"
+                className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 font-bold text-white transition text-xs shadow-xs cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                Final Submit
+                <Send className="w-3.5 h-3.5" /> Submit Assessment
               </button>
             )}
           </div>
         </div>
 
-        <div className="md:col-span-1">
+        {/* Right Side Navigation Palette */}
+        <div className="lg:col-span-1">
           <QuestionPalette
             total={questions.length}
             current={currentIndex}
