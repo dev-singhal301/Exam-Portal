@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import QuestionPalette from '../components/QuestionPalette';
-import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send, CheckCircle2 } from 'lucide-react';
+import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send } from 'lucide-react';
 
 export default function ExamScreen() {
   const { id } = useParams();
@@ -18,11 +18,17 @@ export default function ExamScreen() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  const strikesStorageKey = `strikes_${id}_${user?.id || 'guest'}`;
+
   const handleTermination = async (strikeCount) => {
     await submitTest(true, strikeCount);
   };
 
-  const { strikes, isFullscreen, isWarningActive, requestFullscreen } = useAntiCheat(3, handleTermination);
+  const { strikes, isFullscreen, isWarningActive, requestFullscreen } = useAntiCheat(
+    3,
+    handleTermination,
+    strikesStorageKey
+  );
 
   useEffect(() => {
     const fetchExam = async () => {
@@ -73,7 +79,7 @@ export default function ExamScreen() {
     if (user) fetchExam();
   }, [id, user, navigate]);
 
-  // Countdown timer
+  // Timer countdown hook
   useEffect(() => {
     if (timeLeft <= 0 || loading) return;
     const timer = setInterval(() => {
@@ -138,7 +144,10 @@ export default function ExamScreen() {
       is_terminated: isTerminated,
     });
 
+    // Clean up local session artifacts
     localStorage.removeItem(`exam_${id}_${user.id}`);
+    localStorage.removeItem(strikesStorageKey);
+
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
@@ -148,7 +157,7 @@ export default function ExamScreen() {
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-100 flex items-center justify-center font-medium text-zinc-600">
-        Initializing Secure Environment...
+        Initializing Secure Assessment Environment...
       </div>
     );
   }
@@ -164,14 +173,14 @@ export default function ExamScreen() {
           <div className="space-y-2">
             <h1 className="text-xl font-bold text-zinc-100 tracking-tight">{exam.title}</h1>
             <p className="text-zinc-400 text-xs leading-relaxed">
-              This assessment enforces a monitored testing sandbox. Exiting fullscreen, switching workspaces, or copying questions triggers automated violation strikes.
+              This assessment enforces strict proctoring. Exiting fullscreen, switching tabs, or using browser history buttons will trigger strike violations. Reaching 3 strikes results in automated termination.
             </p>
           </div>
           <button
             onClick={requestFullscreen}
             className="w-full py-3 bg-teal-700 hover:bg-teal-600 text-white font-semibold rounded-xl transition shadow-md shadow-teal-950 cursor-pointer"
           >
-            Launch Fullscreen Session
+            Enter Fullscreen & Begin
           </button>
         </div>
       </div>
@@ -185,7 +194,7 @@ export default function ExamScreen() {
 
   return (
     <div className="min-h-screen bg-zinc-100 flex flex-col select-none relative">
-      {/* Violation Overlay */}
+      {/* Violation Modal */}
       {isWarningActive && (
         <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md z-50 flex flex-col items-center justify-center text-white p-6">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
@@ -194,7 +203,7 @@ export default function ExamScreen() {
             </div>
             <h2 className="text-xl font-bold text-zinc-100">Security Breach Detected</h2>
             <p className="text-zinc-400 text-xs leading-relaxed">
-              Window focus lost or fullscreen exited. Violation <strong className="text-amber-400">{strikes} of 3</strong> has been permanently logged.
+              Window focus lost, tab switched, or back button triggered. Violation <strong className="text-amber-400">{strikes} of 3</strong> has been logged.
             </p>
             <button
               onClick={requestFullscreen}
@@ -206,7 +215,7 @@ export default function ExamScreen() {
         </div>
       )}
 
-      {/* Proctored HUD Bar */}
+      {/* Proctoring HUD Bar */}
       <header className="bg-white border-b border-zinc-200 px-6 py-3.5 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -234,7 +243,6 @@ export default function ExamScreen() {
 
       {/* Main Examination Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-        {/* Question Frame */}
         <div className="lg:col-span-3 space-y-6">
           <div className="bg-white border border-zinc-200/80 rounded-2xl p-7 shadow-xs space-y-6">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
@@ -247,7 +255,6 @@ export default function ExamScreen() {
               {currentQ.question_text}
             </p>
 
-            {/* Option Cards */}
             <div className="space-y-3 pt-2">
               {currentQ.shuffledOptions.map((opt, oIdx) => {
                 const isSelected =
@@ -279,7 +286,6 @@ export default function ExamScreen() {
             </div>
           </div>
 
-          {/* Action Row */}
           <div className="flex justify-between items-center pt-1">
             <button
               disabled={currentIndex === 0}
@@ -307,7 +313,6 @@ export default function ExamScreen() {
           </div>
         </div>
 
-        {/* Right Side Navigation Palette */}
         <div className="lg:col-span-1">
           <QuestionPalette
             total={questions.length}
