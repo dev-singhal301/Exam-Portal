@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import QuestionPalette from '../components/QuestionPalette';
-import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send } from 'lucide-react';
+import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send, AlertTriangle, X } from 'lucide-react';
 
 export default function ExamScreen() {
   const { id } = useParams();
@@ -17,6 +17,8 @@ export default function ExamScreen() {
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const strikesStorageKey = `strikes_${id}_${user?.id || 'guest'}`;
 
@@ -36,7 +38,7 @@ export default function ExamScreen() {
       const { data: qData } = await supabase.from('questions').select('*').eq('exam_id', id);
 
       if (!examData || !qData) {
-        alert('Exam not found or unaccessible.');
+        alert('Exam not found or inaccessible.');
         navigate('/');
         return;
       }
@@ -79,7 +81,7 @@ export default function ExamScreen() {
     if (user) fetchExam();
   }, [id, user, navigate]);
 
-  // Timer countdown hook
+  // Countdown timer hook
   useEffect(() => {
     if (timeLeft <= 0 || loading) return;
     const timer = setInterval(() => {
@@ -115,6 +117,9 @@ export default function ExamScreen() {
   };
 
   const submitTest = async (isTerminated = false, finalStrikes = strikes) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     let calculatedScore = 0;
     questions.forEach((q, idx) => {
       const userAns = answers[idx];
@@ -144,7 +149,6 @@ export default function ExamScreen() {
       is_terminated: isTerminated,
     });
 
-    // Clean up local session artifacts
     localStorage.removeItem(`exam_${id}_${user.id}`);
     localStorage.removeItem(strikesStorageKey);
 
@@ -173,7 +177,7 @@ export default function ExamScreen() {
           <div className="space-y-2">
             <h1 className="text-xl font-bold text-zinc-100 tracking-tight">{exam.title}</h1>
             <p className="text-zinc-400 text-xs leading-relaxed">
-              This assessment enforces strict proctoring. Exiting fullscreen, switching tabs, or using browser history buttons will trigger strike violations. Reaching 3 strikes results in automated termination.
+              This assessment enforces strict proctoring. Exiting fullscreen, switching tabs, or navigating away logs security violations. Reaching 3 strikes will automatically terminate your session.
             </p>
           </div>
           <button
@@ -192,9 +196,71 @@ export default function ExamScreen() {
   const seconds = timeLeft % 60;
   const isFinalTwoMinutes = timeLeft <= 120;
 
+  // Counts for verification modal
+  const answeredCount = Object.keys(answers).filter((k) => {
+    const val = answers[k];
+    return Array.isArray(val) ? val.length > 0 : val !== undefined;
+  }).length;
+  const unattemptedCount = questions.length - answeredCount;
+
   return (
     <div className="min-h-screen bg-zinc-100 flex flex-col select-none relative">
-      {/* Violation Modal */}
+      {/* 1. Final Submit Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-zinc-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-zinc-200 p-6 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div className="flex items-center gap-2.5 text-zinc-900 font-bold text-base">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <span>Confirm Final Submission</span>
+              </div>
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="text-zinc-400 hover:text-zinc-700 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              Are you sure you want to end your assessment? Once submitted, your choices will be permanently finalized and cannot be modified.
+            </p>
+
+            {/* Assessment Progress Summary */}
+            <div className="grid grid-cols-2 gap-3 bg-zinc-50 border border-zinc-200/80 p-3.5 rounded-xl text-xs">
+              <div>
+                <span className="text-zinc-500 block text-[11px]">Attempted</span>
+                <span className="text-teal-700 font-bold text-base">{answeredCount} questions</span>
+              </div>
+              <div>
+                <span className="text-zinc-500 block text-[11px]">Unattempted</span>
+                <span className="text-amber-700 font-bold text-base">{unattemptedCount} questions</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-zinc-300 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition cursor-pointer"
+              >
+                Return to Exam
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirmModal(false);
+                  submitTest(false, strikes);
+                }}
+                disabled={isSubmitting}
+                className="flex-1 py-2.5 rounded-xl bg-teal-800 hover:bg-teal-900 text-xs font-bold text-white transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isSubmitting ? 'Submitting...' : 'Yes, Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Security Breach Modal */}
       {isWarningActive && (
         <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md z-50 flex flex-col items-center justify-center text-white p-6">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
@@ -215,7 +281,7 @@ export default function ExamScreen() {
         </div>
       )}
 
-      {/* Proctoring HUD Bar */}
+      {/* HUD Header */}
       <header className="bg-white border-b border-zinc-200 px-6 py-3.5 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -225,7 +291,6 @@ export default function ExamScreen() {
             </span>
           </div>
 
-          {/* Dynamic Urgency Timer */}
           <div
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border font-mono text-sm font-bold transition-colors ${
               isFinalTwoMinutes
@@ -243,6 +308,7 @@ export default function ExamScreen() {
 
       {/* Main Examination Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+        {/* Left: Question View */}
         <div className="lg:col-span-3 space-y-6">
           <div className="bg-white border border-zinc-200/80 rounded-2xl p-7 shadow-xs space-y-6">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
@@ -286,40 +352,48 @@ export default function ExamScreen() {
             </div>
           </div>
 
+          {/* Navigation Controls Only (No Submit button here to avoid accidental clicks) */}
           <div className="flex justify-between items-center pt-1">
             <button
               disabled={currentIndex === 0}
               onClick={() => setCurrentIndex((p) => p - 1)}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-zinc-300 font-semibold text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-30 disabled:pointer-events-none transition text-xs cursor-pointer"
             >
-              <ArrowLeft className="w-4 h-4" /> Previous
+              <ArrowLeft className="w-4 h-4" /> Previous Question
             </button>
 
-            {currentIndex < questions.length - 1 ? (
-              <button
-                onClick={() => setCurrentIndex((p) => p + 1)}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-teal-800 hover:bg-teal-900 font-semibold text-white transition text-xs shadow-xs cursor-pointer"
-              >
-                Next <ArrowRight className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                onClick={() => submitTest(false, strikes)}
-                className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 font-bold text-white transition text-xs shadow-xs cursor-pointer"
-              >
-                <Send className="w-3.5 h-3.5" /> Submit Assessment
-              </button>
-            )}
+            <button
+              disabled={currentIndex === questions.length - 1}
+              onClick={() => setCurrentIndex((p) => p + 1)}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none font-semibold text-white transition text-xs shadow-xs cursor-pointer"
+            >
+              Next Question <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        <div className="lg:col-span-1">
+        {/* Right: Question Palette & Isolated Submit Box */}
+        <div className="lg:col-span-1 space-y-4">
           <QuestionPalette
             total={questions.length}
             current={currentIndex}
             answers={answers}
             onSelect={(idx) => setCurrentIndex(idx)}
           />
+
+          {/* Separated Submit Action Card */}
+          <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-xs space-y-3">
+            <div className="text-[11px] text-zinc-500 font-medium text-center">
+              Done with all questions? Verify your choices above before submitting.
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowConfirmModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-teal-800 hover:bg-teal-900 font-bold text-white transition text-xs shadow-xs cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" /> Submit Assessment
+            </button>
+          </div>
         </div>
       </main>
     </div>
