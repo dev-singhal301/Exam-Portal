@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +20,9 @@ export default function ExamScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  // Synchronous guard ref to prevent multiple alerts on unmount/re-render
+  const hasHandledExit = useRef(false);
+
   const strikesStorageKey = `strikes_${id}_${user?.id || 'guest'}`;
 
   const handleTermination = async (strikeCount) => {
@@ -32,14 +35,34 @@ export default function ExamScreen() {
     strikesStorageKey
   );
 
+  // Initial Load and Status Verification
   useEffect(() => {
+    let isMounted = true;
+
     const fetchExam = async () => {
+      if (hasHandledExit.current) return;
+
       const { data: examData } = await supabase.from('exams').select('*').eq('id', id).single();
       const { data: qData } = await supabase.from('questions').select('*').eq('exam_id', id);
 
+      if (!isMounted) return;
+
       if (!examData || !qData) {
-        alert('Exam not found or inaccessible.');
-        navigate('/');
+        if (!hasHandledExit.current) {
+          hasHandledExit.current = true;
+          alert('Exam not found or inaccessible.');
+          navigate('/', { replace: true });
+        }
+        return;
+      }
+
+      // Check if the exam has been concluded by admin
+      if (examData.is_ended) {
+        if (!hasHandledExit.current) {
+          hasHandledExit.current = true;
+          alert('This assessment has concluded and is no longer accepting submissions.');
+          navigate('/', { replace: true });
+        }
         return;
       }
 
@@ -50,9 +73,14 @@ export default function ExamScreen() {
         .eq('student_id', user.id)
         .single();
 
+      if (!isMounted) return;
+
       if (existingSub) {
-        alert('You have already submitted this exam.');
-        navigate('/');
+        if (!hasHandledExit.current) {
+          hasHandledExit.current = true;
+          alert('You have already submitted this exam.');
+          navigate('/', { replace: true });
+        }
         return;
       }
 
@@ -78,10 +106,52 @@ export default function ExamScreen() {
       setLoading(false);
     };
 
-    if (user) fetchExam();
+    if (user) {
+      fetchExam();
+    }
+
+    return () => {
+      isMounted = false;
+    };
   }, [id, user, navigate]);
 
-  // Countdown timer hook
+  // Real-time listener for remote admin termination / disqualification
+  useEffect(() => {
+    if (!id || !user) return;
+
+    const channel = supabase
+      .channel(`submission_watch_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'submissions',
+          filter: `student_id=eq.${user.id}`,
+        },
+        (payload) => {
+          if (payload.new && payload.new.is_terminated && payload.new.exam_id === id) {
+            if (!hasHandledExit.current) {
+              hasHandledExit.current = true;
+              alert('Your examination has been remotely disqualified by the administrator.');
+              localStorage.removeItem(`exam_${id}_${user.id}`);
+              localStorage.removeItem(strikesStorageKey);
+              if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+              }
+              navigate(`/result/${id}`, { replace: true });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, user, navigate, strikesStorageKey]);
+
+  // Exam Countdown Timer
   useEffect(() => {
     if (timeLeft <= 0 || loading) return;
     const timer = setInterval(() => {
@@ -155,7 +225,7 @@ export default function ExamScreen() {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
-    navigate(`/result/${id}`);
+    navigate(`/result/${id}`, { replace: true });
   };
 
   if (loading) {
@@ -166,8 +236,8 @@ export default function ExamScreen() {
     );
   }
 
-  // Fullscreen Enforcer Gate
-  if (!isFullscreen && strikes === 0) {
+  // Persistent Fullscreen Enforcer Gate: Displays whenever windowed, regardless of previous strikes
+  if (!isFullscreen && strikes < 3) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 text-white p-6">
         <div className="max-w-lg w-full bg-zinc-900 border border-zinc-800 p-8 rounded-2xl text-center shadow-2xl space-y-6">
@@ -177,14 +247,16 @@ export default function ExamScreen() {
           <div className="space-y-2">
             <h1 className="text-xl font-bold text-zinc-100 tracking-tight">{exam.title}</h1>
             <p className="text-zinc-400 text-xs leading-relaxed">
-              This assessment enforces strict proctoring. Exiting fullscreen, switching tabs, or navigating away logs security violations. Reaching 3 strikes will automatically terminate your session.
+              {strikes > 0
+                ? `You currently have ${strikes} of 3 security strikes. Re-enter fullscreen mode to resume your assessment.`
+                : 'This assessment enforces strict proctoring. Exiting fullscreen, switching tabs, or navigating away logs security violations. Reaching 3 strikes will automatically disqualify and terminate your session.'}
             </p>
           </div>
           <button
             onClick={requestFullscreen}
             className="w-full py-3 bg-teal-700 hover:bg-teal-600 text-white font-semibold rounded-xl transition shadow-md shadow-teal-950 cursor-pointer"
           >
-            Enter Fullscreen & Begin
+            {strikes > 0 ? 'Re-enter Fullscreen & Resume' : 'Enter Fullscreen & Begin'}
           </button>
         </div>
       </div>
@@ -196,7 +268,6 @@ export default function ExamScreen() {
   const seconds = timeLeft % 60;
   const isFinalTwoMinutes = timeLeft <= 120;
 
-  // Counts for verification modal
   const answeredCount = Object.keys(answers).filter((k) => {
     const val = answers[k];
     return Array.isArray(val) ? val.length > 0 : val !== undefined;
@@ -216,7 +287,7 @@ export default function ExamScreen() {
               </div>
               <button
                 onClick={() => setShowConfirmModal(false)}
-                className="text-zinc-400 hover:text-zinc-700 transition"
+                className="text-zinc-400 hover:text-zinc-700 transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -226,7 +297,6 @@ export default function ExamScreen() {
               Are you sure you want to end your assessment? Once submitted, your choices will be permanently finalized and cannot be modified.
             </p>
 
-            {/* Assessment Progress Summary */}
             <div className="grid grid-cols-2 gap-3 bg-zinc-50 border border-zinc-200/80 p-3.5 rounded-xl text-xs">
               <div>
                 <span className="text-zinc-500 block text-[11px]">Attempted</span>
@@ -260,7 +330,7 @@ export default function ExamScreen() {
         </div>
       )}
 
-      {/* 2. Security Breach Modal */}
+      {/* 2. Security Breach Warning Modal */}
       {isWarningActive && (
         <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md z-50 flex flex-col items-center justify-center text-white p-6">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
@@ -281,7 +351,7 @@ export default function ExamScreen() {
         </div>
       )}
 
-      {/* HUD Header */}
+      {/* Proctoring HUD Header */}
       <header className="bg-white border-b border-zinc-200 px-6 py-3.5 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -308,7 +378,6 @@ export default function ExamScreen() {
 
       {/* Main Examination Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-        {/* Left: Question View */}
         <div className="lg:col-span-3 space-y-6">
           <div className="bg-white border border-zinc-200/80 rounded-2xl p-7 shadow-xs space-y-6">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
@@ -352,7 +421,6 @@ export default function ExamScreen() {
             </div>
           </div>
 
-          {/* Navigation Controls Only (No Submit button here to avoid accidental clicks) */}
           <div className="flex justify-between items-center pt-1">
             <button
               disabled={currentIndex === 0}
@@ -372,7 +440,7 @@ export default function ExamScreen() {
           </div>
         </div>
 
-        {/* Right: Question Palette & Isolated Submit Box */}
+        {/* Right Sidebar: Palette & Isolated Submit Button */}
         <div className="lg:col-span-1 space-y-4">
           <QuestionPalette
             total={questions.length}
@@ -381,7 +449,6 @@ export default function ExamScreen() {
             onSelect={(idx) => setCurrentIndex(idx)}
           />
 
-          {/* Separated Submit Action Card */}
           <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-xs space-y-3">
             <div className="text-[11px] text-zinc-500 font-medium text-center">
               Done with all questions? Verify your choices above before submitting.

@@ -1,94 +1,103 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 
-export function useAntiCheat(maxStrikes = 3, onTerminate, storageKey = 'exam_session_strikes') {
-  // Initialize strikes from localStorage to persist across navigation/refreshes
+export function useAntiCheat(maxStrikes = 3, onTerminate, storageKey) {
   const [strikes, setStrikes] = useState(() => {
+    if (!storageKey) return 0;
     const saved = localStorage.getItem(storageKey);
     return saved ? parseInt(saved, 10) : 0;
   });
 
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
   const [isWarningActive, setIsWarningActive] = useState(false);
-  const onTerminateRef = useRef(onTerminate);
-  onTerminateRef.current = onTerminate;
 
-  // Sync violation increments to localStorage and check max bounds
-  const registerViolation = useCallback(() => {
+  // The anti-cheat monitoring must only start logging strikes AFTER the student enters fullscreen
+  const isArmedRef = useRef(false);
+
+  const registerStrike = useCallback(() => {
+    // If test hasn't officially started in fullscreen yet, ignore violations
+    if (!isArmedRef.current) return;
+
     setStrikes((prev) => {
-      const nextStrikes = prev + 1;
-      localStorage.setItem(storageKey, nextStrikes.toString());
-
-      if (nextStrikes >= maxStrikes) {
-        if (onTerminateRef.current) onTerminateRef.current(nextStrikes);
-      } else {
-        setIsWarningActive(true);
+      const next = prev + 1;
+      if (storageKey) {
+        localStorage.setItem(storageKey, next.toString());
       }
-      return nextStrikes;
-    });
-  }, [maxStrikes, storageKey]);
+      setIsWarningActive(true);
 
-  // Request Fullscreen helper
-  const requestFullscreen = async () => {
+      if (next >= maxStrikes && onTerminate) {
+        onTerminate(next);
+      }
+      return next;
+    });
+  }, [maxStrikes, onTerminate, storageKey]);
+
+  const requestFullscreen = useCallback(async () => {
     try {
       if (!document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
       }
       setIsFullscreen(true);
       setIsWarningActive(false);
+      // Arm the monitor only after explicit user interaction
+      isArmedRef.current = true;
     } catch (err) {
-      console.warn('Fullscreen request blocked by browser policy:', err);
+      console.error('Fullscreen request failed:', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // 1. Trap browser back/forward navigation
-    window.history.pushState(null, '', window.location.href);
-    const handlePopState = () => {
-      window.history.pushState(null, '', window.location.href);
-      registerViolation();
-    };
-
-    // 2. Fullscreen monitor
     const handleFullscreenChange = () => {
       const inFullscreen = Boolean(document.fullscreenElement);
       setIsFullscreen(inFullscreen);
-      if (!inFullscreen) {
-        registerViolation();
+
+      // Only penalize if the assessment was armed and student exits fullscreen
+      if (!inFullscreen && isArmedRef.current) {
+        registerStrike();
       }
     };
 
-    // 3. Tab switch & window blur monitor
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        registerViolation();
+      if (document.hidden && isArmedRef.current) {
+        registerStrike();
       }
     };
 
-    const handleWindowBlur = () => {
-      registerViolation();
+    const handleBlur = () => {
+      if (isArmedRef.current) {
+        registerStrike();
+      }
     };
 
-    // 4. Prevent copy, cut, and right-click context menus
-    const preventAction = (e) => e.preventDefault();
+    const handleContextMenu = (e) => e.preventDefault();
+    const handleCopyPaste = (e) => e.preventDefault();
 
-    window.addEventListener('popstate', handlePopState);
+    // Trap browser back/forward buttons
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+      if (isArmedRef.current) {
+        registerStrike();
+      }
+    };
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleWindowBlur);
-    document.addEventListener('contextmenu', preventAction);
-    document.addEventListener('copy', preventAction);
-    document.addEventListener('cut', preventAction);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('copy', handleCopyPaste);
+    document.addEventListener('cut', handleCopyPaste);
+    window.addEventListener('popstate', handlePopState);
 
     return () => {
-      window.removeEventListener('popstate', handlePopState);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleWindowBlur);
-      document.removeEventListener('contextmenu', preventAction);
-      document.removeEventListener('copy', preventAction);
-      document.removeEventListener('cut', preventAction);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('copy', handleCopyPaste);
+      document.removeEventListener('cut', handleCopyPaste);
+      window.removeEventListener('popstate', handlePopState);
     };
-  }, [registerViolation]);
+  }, [registerStrike]);
 
   return {
     strikes,
