@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Link } from 'react-router-dom';
-import { Plus, Users, Clock, Eye, EyeOff, LayoutDashboard, Trash2, StopCircle, CheckCircle2 } from 'lucide-react';
+import { Plus, Users, Clock, Eye, EyeOff, LayoutDashboard, Trash2, StopCircle, FileText } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [exams, setExams] = useState([]);
@@ -35,7 +35,7 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteExam = async (examId, title) => {
-    if (!window.confirm(`Permanently delete "${title}" and all its questions/submissions?`)) return;
+    if (!window.confirm(`Permanently delete "${title}" and all associated questions/submissions?`)) return;
 
     const { error } = await supabase.from('exams').delete().eq('id', examId);
     if (error) {
@@ -47,7 +47,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto p-8 space-y-6">
-      {/* Top Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-200/80 pb-5">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-teal-800 text-teal-300 flex items-center justify-center shadow-xs">
@@ -55,7 +54,7 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-zinc-900 tracking-tight">Admin Examination Console</h1>
-            <p className="text-xs text-zinc-500">Manage exam states, stop active tests, and review performance.</p>
+            <p className="text-xs text-zinc-500">Manage assessments, configure result visibility, and oversee sessions.</p>
           </div>
         </div>
         <Link
@@ -66,7 +65,6 @@ export default function AdminDashboard() {
         </Link>
       </div>
 
-      {/* Main Table */}
       <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -74,20 +72,21 @@ export default function AdminDashboard() {
               <tr>
                 <th className="p-4">Assessment Title</th>
                 <th className="p-4">Duration</th>
-                <th className="p-4">Access Status</th>
+                <th className="p-4">Status</th>
                 <th className="p-4">Lifecycle</th>
-                <th className="p-4">Results</th>
+                <th className="p-4">Student View</th>
+                <th className="p-4">Answer Key</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="p-6 text-center text-zinc-400">Loading exams...</td>
+                  <td colSpan="7" className="p-6 text-center text-zinc-400">Loading exams...</td>
                 </tr>
               ) : exams.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="p-8 text-center text-zinc-400">No examinations found.</td>
+                  <td colSpan="7" className="p-8 text-center text-zinc-400">No examinations found.</td>
                 </tr>
               ) : (
                 exams.map((exam) => (
@@ -142,7 +141,20 @@ export default function AdminDashboard() {
                         }`}
                       >
                         {exam.show_results ? <Eye className="w-3.5 h-3.5 text-teal-700" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-400" />}
-                        {exam.show_results ? 'Visible' : 'Hidden'}
+                        {exam.show_results ? 'Score Released' : 'Score Hidden'}
+                      </button>
+                    </td>
+                    <td className="p-4">
+                      <button
+                        onClick={() => toggleStatus(exam.id, 'show_detailed_results', exam.show_detailed_results)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                          exam.show_detailed_results
+                            ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                            : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-zinc-200'
+                        }`}
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        {exam.show_detailed_results ? 'Full Breakdown' : 'Score Only'}
                       </button>
                     </td>
                     <td className="p-4 text-right">
