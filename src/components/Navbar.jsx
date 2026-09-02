@@ -1,11 +1,17 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Shield, ShieldAlert, LogOut, User } from 'lucide-react';
+import { Shield, LogOut, User } from 'lucide-react';
 
 export default function Navbar() {
   const { profile, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Completely unmount Navbar during active exams so logout is inaccessible
+  if (location.pathname.startsWith('/exam/')) {
+    return null;
+  }
 
   const handleLogout = async () => {
     await logout();
@@ -26,7 +32,7 @@ export default function Navbar() {
           </div>
         </Link>
 
-        {/* User Stats & Controls */}
+        {/* User Badge & Actions */}
         <div className="flex items-center gap-3">
           {profile && (
             <>
@@ -48,7 +54,7 @@ export default function Navbar() {
 
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 text-xs font-semibold text-zinc-600 hover:text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 transition"
+                className="flex items-center gap-1.5 text-xs font-semibold text-zinc-600 hover:text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 transition cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span>Logout</span>
