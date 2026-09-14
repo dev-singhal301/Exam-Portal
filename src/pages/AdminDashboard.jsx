@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Link } from 'react-router-dom';
-import { Plus, Users, Clock, Eye, EyeOff, LayoutDashboard, Trash2, StopCircle, FileText } from 'lucide-react';
+import { 
+  Plus, Users, Clock, Eye, EyeOff, LayoutDashboard, 
+  Trash2, StopCircle, FileText, Trophy 
+} from 'lucide-react';
 
 export default function AdminDashboard() {
   const [exams, setExams] = useState([]);
@@ -54,7 +57,7 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-zinc-900 tracking-tight">Admin Examination Console</h1>
-            <p className="text-xs text-zinc-500">Manage assessments, configure result visibility, and oversee sessions.</p>
+            <p className="text-xs text-zinc-500">Manage assessments, toggle leaderboards, and oversee student rankings.</p>
           </div>
         </div>
         <Link
@@ -74,19 +77,20 @@ export default function AdminDashboard() {
                 <th className="p-4">Duration</th>
                 <th className="p-4">Status</th>
                 <th className="p-4">Lifecycle</th>
-                <th className="p-4">Student View</th>
+                <th className="p-4">Student Score</th>
                 <th className="p-4">Answer Key</th>
+                <th className="p-4">Leaderboard</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="p-6 text-center text-zinc-400">Loading exams...</td>
+                  <td colSpan="8" className="p-6 text-center text-zinc-400">Loading exams...</td>
                 </tr>
               ) : exams.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="p-8 text-center text-zinc-400">No examinations found.</td>
+                  <td colSpan="8" className="p-8 text-center text-zinc-400">No examinations found.</td>
                 </tr>
               ) : (
                 exams.map((exam) => (
@@ -141,7 +145,7 @@ export default function AdminDashboard() {
                         }`}
                       >
                         {exam.show_results ? <Eye className="w-3.5 h-3.5 text-teal-700" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-400" />}
-                        {exam.show_results ? 'Score Released' : 'Score Hidden'}
+                        {exam.show_results ? 'Visible' : 'Hidden'}
                       </button>
                     </td>
                     <td className="p-4">
@@ -154,11 +158,32 @@ export default function AdminDashboard() {
                         }`}
                       >
                         <FileText className="w-3.5 h-3.5" />
-                        {exam.show_detailed_results ? 'Full Breakdown' : 'Score Only'}
+                        {exam.show_detailed_results ? 'Detailed' : 'Score Only'}
+                      </button>
+                    </td>
+                    <td className="p-4">
+                      <button
+                        onClick={() => toggleStatus(exam.id, 'show_leaderboard', exam.show_leaderboard)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                          exam.show_leaderboard
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-zinc-200'
+                        }`}
+                      >
+                        {/* REPLACED TrophyOff WITH EyeOff HERE */}
+                        {exam.show_leaderboard ? <Trophy className="w-3.5 h-3.5 text-amber-600" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-400" />}
+                        {exam.show_leaderboard ? 'Live for All' : 'Disabled'}
                       </button>
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <Link
+                          to={`/admin/leaderboard/${exam.id}`}
+                          className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-900 font-semibold text-xs bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-200/60 transition"
+                          title="View Leaderboard"
+                        >
+                          <Trophy className="w-3.5 h-3.5" /> Ranking
+                        </Link>
                         <Link
                           to={`/admin/submissions/${exam.id}`}
                           className="inline-flex items-center gap-1 text-teal-800 hover:text-teal-900 font-semibold text-xs bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg border border-teal-200/60 transition"
