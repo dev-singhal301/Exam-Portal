@@ -1,18 +1,42 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, ArrowRight, AlertCircle } from 'lucide-react';
+import { Shield, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+
+  const validateForm = () => {
+    setErrorMsg('');
+
+    if (!email.trim() || !password.trim()) {
+      setErrorMsg('Email and password cannot be empty.');
+      return false;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setErrorMsg('Please enter a valid email address.');
+      return false;
+    }
+
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters long.');
+      return false;
+    }
+
+    return true;
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setErrorMsg('');
+    if (!validateForm()) return;
+
     setLoading(true);
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -60,7 +84,6 @@ export default function Login() {
               className="w-full border border-zinc-200 bg-zinc-50/50 p-3 rounded-xl text-xs font-medium text-zinc-900 focus:bg-white focus:ring-2 focus:ring-teal-700 focus:outline-none transition"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
             />
           </div>
 
@@ -68,15 +91,23 @@ export default function Login() {
             <label className="text-[11px] font-bold text-zinc-700 uppercase tracking-wider block mb-1">
               Password
             </label>
-            <input
-              type="password"
-              minLength={6}
-              placeholder="Minimum 6 characters"
-              className="w-full border border-zinc-200 bg-zinc-50/50 p-3 rounded-xl text-xs font-medium text-zinc-900 focus:bg-white focus:ring-2 focus:ring-teal-700 focus:outline-none transition"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Minimum 6 characters"
+                className="w-full border border-zinc-200 bg-zinc-50/50 p-3 pr-10 rounded-xl text-xs font-medium text-zinc-900 focus:bg-white focus:ring-2 focus:ring-teal-700 focus:outline-none transition"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
+                tabIndex="-1"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button

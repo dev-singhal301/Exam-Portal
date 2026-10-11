@@ -245,7 +245,6 @@ export default function ExamScreen() {
     if (aiUsageCount >= 2) return;
     if (!aiPrompt.trim()) return;
 
-    // Deduct immediately before the network call
     const newCount = aiUsageCount + 1;
     setAiUsageCount(newCount);
     if (submissionId) {
@@ -282,7 +281,11 @@ export default function ExamScreen() {
       });
 
       if (!response.ok) {
-        throw new Error(`API returned status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw { 
+          status: response.status, 
+          message: errorData?.error?.message || "API request failed" 
+        };
       }
 
       const data = await response.json();
@@ -296,8 +299,15 @@ export default function ExamScreen() {
       }
       
     } catch (err) {
-      console.error(err);
-      setAiResponse("Failed to connect to the AI service or usage limit reached. This attempt has been logged.");
+      console.error("AI API Error:", err);
+      
+      if (err?.status === 429 || err?.message?.toLowerCase().includes("quota")) {
+        alert("⏳ The AI Assistant has reached its daily limit. Please proceed manually!");
+        setAiResponse("The AI Assistant is currently resting (Daily Limit Reached).");
+      } else {
+        alert("⚠️ The AI Assistant is temporarily unavailable.");
+        setAiResponse("Service temporarily unavailable.");
+      }
     } finally {
       setIsAiLoading(false);
     }
