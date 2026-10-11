@@ -3,8 +3,9 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { 
-  Award, CheckCircle2, XCircle, AlertCircle, ShieldAlert, 
-  ArrowLeft, Lock, FileText, Trophy, Clock, Medal 
+  Award, CheckCircle2, XCircle, AlertCircle, 
+  ArrowLeft, Lock, FileText, Trophy, Clock, Medal,
+  MinusCircle, Sparkles
 } from 'lucide-react';
 
 export default function ResultScreen() {
@@ -30,24 +31,25 @@ export default function ResultScreen() {
         .eq('student_id', user.id)
         .single();
 
-      if (examData?.show_detailed_results) {
-        const { data: qData } = await supabase
-          .from('questions')
-          .select('*')
-          .eq('exam_id', id)
-          .order('created_at', { ascending: true });
+      // ALWAYS fetch questions to accurately calculate the max possible score for percentage
+      const { data: qData } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('exam_id', id)
+        .order('created_at', { ascending: true });
+        
+      const targetCategory = subData?.selected_category;
+      if (examData.has_categories && targetCategory) {
+        setQuestions(qData.filter(q => q.category === targetCategory) || []);
+      } else {
         setQuestions(qData || []);
       }
 
-      // Fetch leaderboard with Error Handling & Fallback
       if (examData?.show_leaderboard) {
         const { data: topList, error: rpcError } = await supabase
           .rpc('get_exam_leaderboard', { target_exam_id: id });
         
         if (rpcError) {
-          console.error("RPC Leaderboard Error (Check Supabase SQL):", rpcError.message);
-          
-          // Backup standard query if RPC fails (relies on RLS allowing it)
           const { data: fallbackList } = await supabase
             .from('submissions')
             .select('student_id, student_name, score, time_taken_seconds')
@@ -56,7 +58,6 @@ export default function ResultScreen() {
             .order('score', { ascending: false })
             .order('time_taken_seconds', { ascending: true })
             .order('submitted_at', { ascending: true });
-            
           setLeaderboard(fallbackList || []);
         } else {
           setLeaderboard(topList || []);
@@ -118,10 +119,9 @@ export default function ResultScreen() {
     );
   }
 
-  const totalQuestions = questions.length > 0 ? questions.length : Object.keys(submission.answers || {}).length;
-  const percentage = totalQuestions > 0 ? Math.round((submission.score / totalQuestions) * 100) : 0;
+  const maxPossibleScore = questions.reduce((acc, q) => acc + (q.marks || 1), 0);
+  const percentage = maxPossibleScore > 0 ? Math.round((submission.score / maxPossibleScore) * 100) : 0;
   
-  // Calculate user's rank safely
   const myRank = leaderboard?.length > 0 
     ? leaderboard.findIndex((item) => item.student_id === user.id) + 1 
     : 0;
@@ -133,7 +133,14 @@ export default function ResultScreen() {
           <Link to="/" className="inline-flex items-center gap-1 text-teal-800 hover:text-teal-900 text-xs font-bold mb-1">
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
           </Link>
-          <h1 className="text-xl font-bold text-zinc-900">{exam.title} - Results</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <h1 className="text-xl font-bold text-zinc-900">{exam.title} - Results</h1>
+            {submission.selected_category && (
+              <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded uppercase">
+                Track: {submission.selected_category}
+              </span>
+            )}
+          </div>
         </div>
 
         {exam.show_leaderboard && (
@@ -160,12 +167,36 @@ export default function ResultScreen() {
 
       {activeTab === 'summary' ? (
         <>
+          {submission.is_qualified === true && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex items-center gap-4 shadow-sm">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shrink-0">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-emerald-900 font-bold text-lg tracking-tight">Congratulations! You've Qualified</h2>
+                <p className="text-emerald-700 text-xs mt-0.5">Your score met the cutoff criteria. You have successfully advanced to the next round.</p>
+              </div>
+            </div>
+          )}
+
+          {submission.is_qualified === false && (
+            <div className="bg-zinc-100 border border-zinc-300 rounded-2xl p-5 flex items-center gap-4 shadow-sm">
+              <div className="w-12 h-12 bg-zinc-200 text-zinc-500 rounded-full flex items-center justify-center shrink-0">
+                <XCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-zinc-800 font-bold text-lg tracking-tight">Not Qualified</h2>
+                <p className="text-zinc-600 text-xs mt-0.5">Thank you for participating, but you did not make the cutoff for the next round this time.</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white border border-zinc-200/80 p-6 rounded-2xl shadow-xs space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Total Score</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold text-teal-800">{submission.score}</span>
-                {totalQuestions > 0 && <span className="text-sm font-medium text-zinc-400">/ {totalQuestions}</span>}
+                {maxPossibleScore > 0 && <span className="text-sm font-medium text-zinc-400">/ {maxPossibleScore}</span>}
               </div>
             </div>
 
@@ -183,8 +214,10 @@ export default function ResultScreen() {
 
             <div className="bg-white border border-zinc-200/80 p-6 rounded-2xl shadow-xs space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Rank</span>
-              <div className="text-3xl font-extrabold text-amber-700">
-                {exam.show_leaderboard && myRank > 0 ? `#${myRank}` : 'Hidden'}
+              <div className={`text-3xl font-extrabold ${submission.is_terminated ? 'text-red-600' : 'text-amber-700'}`}>
+                {submission.is_terminated 
+                  ? <span className="text-xl">Disqualified</span> 
+                  : (exam.show_leaderboard && myRank > 0 ? `#${myRank}` : 'Hidden')}
               </div>
             </div>
           </div>
@@ -198,17 +231,47 @@ export default function ResultScreen() {
 
               <div className="space-y-4">
                 {questions.map((q, idx) => {
-                  const studentChoice = submission.answers[idx];
-                  const correctIndices = q.correct_answers;
+                  const studentChoice = submission.answers[q.id] !== undefined ? submission.answers[q.id] : submission.answers[idx];
+                  const correctIndices = q.correct_answers || [];
+                  const pMarks = q.marks || 1;
+                  const nMarks = q.negative_marks || 0;
+
+                  if (q.type === 'text') {
+                    const isGraded = submission.is_reviewed && submission.manual_grades && submission.manual_grades[q.id] !== undefined;
+                    const awardedMarks = isGraded ? submission.manual_grades[q.id] : 0;
+
+                    return (
+                      <div key={q.id} className="bg-white border border-zinc-200/80 rounded-2xl p-5 shadow-xs space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="font-semibold text-sm text-zinc-900 leading-snug">
+                            <span className="text-zinc-400 mr-1.5">#{idx + 1}</span>
+                            {q.question_text}
+                          </div>
+                          
+                          {isGraded ? (
+                            <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Graded ({awardedMarks} / {pMarks})
+                            </span>
+                          ) : (
+                            <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                              <Clock className="w-3.5 h-3.5" /> Pending Review
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-3 p-4 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs text-zinc-700 whitespace-pre-wrap">
+                          {studentChoice ? studentChoice : <span className="text-zinc-400 italic">No response provided.</span>}
+                        </div>
+                      </div>
+                    );
+                  }
 
                   let isCorrect = false;
+                  let isAttempted = studentChoice !== undefined && (!Array.isArray(studentChoice) || studentChoice.length > 0);
+
                   if (q.type === 'single' || q.type === 'boolean') {
-                    isCorrect = studentChoice !== undefined && correctIndices.includes(studentChoice);
+                    isCorrect = isAttempted && correctIndices.includes(studentChoice);
                   } else if (q.type === 'multiple') {
-                    isCorrect =
-                      Array.isArray(studentChoice) &&
-                      studentChoice.length === correctIndices.length &&
-                      studentChoice.every((v) => correctIndices.includes(v));
+                    isCorrect = isAttempted && studentChoice.length === correctIndices.length && studentChoice.every((v) => correctIndices.includes(v));
                   }
 
                   return (
@@ -220,17 +283,21 @@ export default function ResultScreen() {
                         </div>
                         {isCorrect ? (
                           <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Correct (+1)
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Correct (+{pMarks})
+                          </span>
+                        ) : isAttempted ? (
+                          <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
+                            <XCircle className="w-3.5 h-3.5" /> Incorrect (-{nMarks})
                           </span>
                         ) : (
-                          <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
-                            <XCircle className="w-3.5 h-3.5" /> Incorrect (0)
+                          <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-zinc-600 bg-zinc-100 px-2 py-0.5 rounded-md border border-zinc-200">
+                            <MinusCircle className="w-3.5 h-3.5" /> Unattempted (0)
                           </span>
                         )}
                       </div>
 
                       <div className="space-y-2 pt-1">
-                        {q.options.map((opt, oIdx) => {
+                        {(q.options || []).map((opt, oIdx) => {
                           const wasSelected =
                             q.type === 'multiple'
                               ? Array.isArray(studentChoice) && studentChoice.includes(oIdx)
