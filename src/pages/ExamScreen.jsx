@@ -263,7 +263,8 @@ export default function ExamScreen() {
       setAiUsageCount((prev) => prev - 1);
       if (submissionId) supabase.from('submissions').update({ ai_usage_count: aiUsageCount }).eq('id', submissionId);
       
-      setAiResponse("System Error: AI API Key not configured by administrator.");
+      // Replaced alert with inline text
+      setAiResponse("⚠️ System Error: AI API Key not configured by administrator.");
       setIsAiLoading(false);
       return;
     }
@@ -309,16 +310,14 @@ export default function ExamScreen() {
       // 2. ROLLBACK the attempt if the API call failed
       setAiUsageCount((prev) => prev - 1);
       if (submissionId) {
-        // Use the original aiUsageCount variable captured in the closure to revert the database
         supabase.from('submissions').update({ ai_usage_count: aiUsageCount }).eq('id', submissionId);
       }
       
+      // Replaced alerts with inline text responses so focus isn't lost
       if (err?.status === 429 || err?.message?.toLowerCase().includes("quota")) {
-        alert("⏳ The AI Assistant has reached its daily limit. Please proceed manually!");
-        setAiResponse("The AI Assistant is currently resting (Daily Limit Reached).");
+        setAiResponse("⏳ The AI Assistant has reached its daily limit and is currently resting. Please answer this question manually!");
       } else {
-        alert("⚠️ The AI Assistant is temporarily unavailable.");
-        setAiResponse("Service temporarily unavailable.");
+        setAiResponse("⚠️ The AI Assistant is temporarily unavailable. Please try again later.");
       }
     } finally {
       setIsAiLoading(false);
