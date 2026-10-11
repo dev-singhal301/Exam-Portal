@@ -245,6 +245,7 @@ export default function ExamScreen() {
     if (aiUsageCount >= 2) return;
     if (!aiPrompt.trim()) return;
 
+    // 1. Deduct attempt immediately for UI responsiveness
     const newCount = aiUsageCount + 1;
     setAiUsageCount(newCount);
     if (submissionId) {
@@ -258,6 +259,10 @@ export default function ExamScreen() {
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
     if (!geminiKey) {
+      // Rollback on system error
+      setAiUsageCount((prev) => prev - 1);
+      if (submissionId) supabase.from('submissions').update({ ai_usage_count: aiUsageCount }).eq('id', submissionId);
+      
       setAiResponse("System Error: AI API Key not configured by administrator.");
       setIsAiLoading(false);
       return;
@@ -300,6 +305,13 @@ export default function ExamScreen() {
       
     } catch (err) {
       console.error("AI API Error:", err);
+      
+      // 2. ROLLBACK the attempt if the API call failed
+      setAiUsageCount((prev) => prev - 1);
+      if (submissionId) {
+        // Use the original aiUsageCount variable captured in the closure to revert the database
+        supabase.from('submissions').update({ ai_usage_count: aiUsageCount }).eq('id', submissionId);
+      }
       
       if (err?.status === 429 || err?.message?.toLowerCase().includes("quota")) {
         alert("⏳ The AI Assistant has reached its daily limit. Please proceed manually!");
