@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import { Link } from 'react-router-dom';
 import { 
   Plus, Users, Clock, Eye, EyeOff, LayoutDashboard, 
-  Trash2, StopCircle, FileText, Trophy 
+  Trash2, StopCircle, FileText, Trophy, Edit 
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -170,7 +170,6 @@ export default function AdminDashboard() {
                             : 'bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-zinc-200'
                         }`}
                       >
-                        {/* REPLACED TrophyOff WITH EyeOff HERE */}
                         {exam.show_leaderboard ? <Trophy className="w-3.5 h-3.5 text-amber-600" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-400" />}
                         {exam.show_leaderboard ? 'Live for All' : 'Disabled'}
                       </button>
@@ -189,6 +188,13 @@ export default function AdminDashboard() {
                           className="inline-flex items-center gap-1 text-teal-800 hover:text-teal-900 font-semibold text-xs bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg border border-teal-200/60 transition"
                         >
                           <Users className="w-3.5 h-3.5" /> Candidates
+                        </Link>
+                        <Link
+                          to={`/admin/edit/${exam.id}`}
+                          className="p-1.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                          title="Edit Exam"
+                        >
+                          <Edit className="w-4 h-4" />
                         </Link>
                         <button
                           onClick={() => handleDeleteExam(exam.id, exam.title)}
