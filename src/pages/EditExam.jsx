@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
@@ -16,18 +16,24 @@ export default function EditExam() {
   const [description, setDescription] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [isPublished, setIsPublished] = useState(false);
-  const [showResults, setShowResults] = useState(true);
+  const [showResults, setShowResults] = useState(false);
   const [showDetailedResults, setShowDetailedResults] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  
   const [hasCategories, setHasCategories] = useState(false);
+  const [categoryTitle, setCategoryTitle] = useState('Select Your Track');
+  const [categoryMessage, setCategoryMessage] = useState('Please select the track you wish to be tested on. You cannot change this later.');
+  
   const [allowAiAssistant, setAllowAiAssistant] = useState(false);
+  // NEW: Dynamic AI Configuration State
+  const [aiWordLimit, setAiWordLimit] = useState(200);
+  const [aiAttemptsLimit, setAiAttemptsLimit] = useState(2);
 
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Fetch Existing Exam Data
   useEffect(() => {
     const fetchExamDetails = async () => {
       try {
@@ -46,8 +52,14 @@ export default function EditExam() {
         setShowResults(examData.show_results || false);
         setShowDetailedResults(examData.show_detailed_results || false);
         setShowLeaderboard(examData.show_leaderboard || false);
+        
         setHasCategories(examData.has_categories || false);
+        setCategoryTitle(examData.category_selection_title || 'Select Your Track');
+        setCategoryMessage(examData.category_selection_message || 'Please select the track you wish to be tested on. You cannot change this later.');
+        
         setAllowAiAssistant(examData.allow_ai_assistant || false);
+        setAiWordLimit(examData.ai_word_limit || 500); // Load AI limit
+        setAiAttemptsLimit(examData.ai_attempts_limit || 2); // Load AI count
 
         const { data: qData, error: qErr } = await supabase
           .from('questions')
@@ -92,10 +104,7 @@ export default function EditExam() {
   };
 
   const removeQuestion = (index) => {
-    if (questions.length === 1) {
-      alert('An assessment must have at least one question.');
-      return;
-    }
+    if (questions.length === 1) return alert('An assessment must have at least one question.');
     setQuestions(questions.filter((_, idx) => idx !== index));
   };
 
@@ -108,7 +117,6 @@ export default function EditExam() {
   const handleTypeChange = (index, newType) => {
     const updated = [...questions];
     updated[index].type = newType;
-
     if (newType === 'boolean') {
       updated[index].options = ['True', 'False'];
       updated[index].correct_answers = [0];
@@ -131,7 +139,6 @@ export default function EditExam() {
   const handleCorrectAnswerToggle = (qIndex, oIndex) => {
     const updated = [...questions];
     const currentQ = updated[qIndex];
-
     if (currentQ.type === 'single' || currentQ.type === 'boolean') {
       currentQ.correct_answers = [oIndex];
     } else if (currentQ.type === 'multiple') {
@@ -168,7 +175,6 @@ export default function EditExam() {
     setIsSaving(true);
 
     try {
-      // 1. Update the Exam Info
       const { error: examErr } = await supabase
         .from('exams')
         .update({
@@ -180,21 +186,19 @@ export default function EditExam() {
           show_detailed_results: showDetailedResults,
           show_leaderboard: showLeaderboard,
           has_categories: hasCategories,
+          category_selection_title: categoryTitle.trim(),
+          category_selection_message: categoryMessage.trim(),
           allow_ai_assistant: allowAiAssistant,
+          ai_word_limit: parseInt(aiWordLimit, 10), // Save AI Limit
+          ai_attempts_limit: parseInt(aiAttemptsLimit, 10), // Save AI Count
         })
         .eq('id', examId);
 
       if (examErr) throw examErr;
 
-      // 2. Delete the old questions
-      const { error: delErr } = await supabase
-        .from('questions')
-        .delete()
-        .eq('exam_id', examId);
-        
+      const { error: delErr } = await supabase.from('questions').delete().eq('exam_id', examId);
       if (delErr) throw delErr;
 
-      // 3. Insert the newly updated list of questions
       const questionsPayload = questions.map((q) => ({
         exam_id: examId,
         question_text: q.question_text.trim(),
@@ -218,9 +222,7 @@ export default function EditExam() {
     }
   };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center text-zinc-500 font-medium">Loading Assessment Data...</div>;
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-zinc-500 font-medium">Loading Assessment Data...</div>;
 
   return (
     <div className="max-w-4xl mx-auto p-6 md:p-8 space-y-6">
@@ -285,10 +287,47 @@ export default function EditExam() {
                 Enable Category Selection (Language Tracks)
               </label>
 
+              {hasCategories && (
+                <div className="col-span-2 p-5 bg-teal-50/40 border border-teal-200/60 rounded-xl space-y-4 mt-2 animate-in fade-in slide-in-from-top-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-teal-900 uppercase tracking-wider">Selection Screen Title</label>
+                    <input type="text" value={categoryTitle} onChange={(e) => setCategoryTitle(e.target.value)} placeholder="e.g., Select Your Technology Stack" className="w-full px-3.5 py-2.5 bg-white border border-teal-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-teal-700/20 focus:border-teal-700" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-teal-900 uppercase tracking-wider">Selection Screen Message</label>
+                    <textarea rows={2} value={categoryMessage} onChange={(e) => setCategoryMessage(e.target.value)} placeholder="e.g., Please select the technology you wish to be tested on..." className="w-full px-3.5 py-2.5 bg-white border border-teal-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-teal-700/20 focus:border-teal-700 resize-none" />
+                  </div>
+                </div>
+              )}
+
               <label className="flex items-center gap-2 p-3 bg-purple-50 border border-purple-200/80 rounded-xl text-xs font-bold text-purple-900 cursor-pointer col-span-2 mt-2">
                 <input type="checkbox" checked={allowAiAssistant} onChange={(e) => setAllowAiAssistant(e.target.checked)} className="w-4 h-4 accent-purple-700" /> 
-                <Sparkles className="w-4 h-4" /> Enable AI Assistant (2 queries allowed)
+                <Sparkles className="w-4 h-4" /> Enable AI Assistant
               </label>
+
+              {/* NEW: DYNAMIC CONFIGURATION FOR AI SETTINGS */}
+              {allowAiAssistant && (
+                <div className="col-span-2 grid grid-cols-2 gap-4 p-5 bg-purple-50/50 border border-purple-200/60 rounded-xl mt-2 animate-in fade-in slide-in-from-top-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-purple-900 uppercase tracking-wider">Attempts per Student</label>
+                    <input 
+                      type="number" min="1" max="10"
+                      value={aiAttemptsLimit} 
+                      onChange={(e) => setAiAttemptsLimit(e.target.value)} 
+                      className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-purple-900 uppercase tracking-wider">Word Limit per Response</label>
+                    <input 
+                      type="number" min="50" step="50"
+                      value={aiWordLimit} 
+                      onChange={(e) => setAiWordLimit(e.target.value)} 
+                      className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700" 
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -311,15 +350,12 @@ export default function EditExam() {
                     <div className="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1">
                       <Tag className="w-3.5 h-3.5 text-zinc-400" />
                       <input 
-                        type="text" 
-                        placeholder="Category" 
-                        value={q.category} 
+                        type="text" placeholder="Category" value={q.category} 
                         onChange={(e) => handleQuestionFieldChange(qIdx, 'category', e.target.value)}
                         className="bg-transparent text-xs font-bold text-zinc-700 w-28 focus:outline-none"
                       />
                     </div>
                   )}
-
                   <select value={q.type} onChange={(e) => handleTypeChange(qIdx, e.target.value)} className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-700">
                     <option value="single">Single Choice</option>
                     <option value="multiple">Multiple Choice</option>

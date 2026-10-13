@@ -20,6 +20,7 @@ export default function ExamScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(0);
+  const [endTime, setEndTime] = useState(null); 
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -28,11 +29,10 @@ export default function ExamScreen() {
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiUsageCount, setAiUsageCount] = useState(0);
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
+  const [chatHistory, setChatHistory] = useState([]); 
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [submissionId, setSubmissionId] = useState(null);
 
-  // LIVE STATE REF: Prevents empty submissions during forced security terminations
   const liveState = useRef({
     answers, questions, exam, timeLeft, selectedCategory, aiUsageCount, isSubmitting
   });
@@ -86,7 +86,7 @@ export default function ExamScreen() {
 
       const { data: existingSub } = await supabase
         .from('submissions')
-        .select('id, status, is_terminated, selected_category, ai_usage_count')
+        .select('id, status, is_terminated, selected_category, ai_usage_count, end_time')
         .eq('exam_id', id)
         .eq('student_id', user.id)
         .maybeSingle();
@@ -111,11 +111,19 @@ export default function ExamScreen() {
 
       setExam(examData);
       setAllQuestions(randomizedQuestions);
-      setTimeLeft(examData.duration_minutes * 60);
 
       if (existingSub) {
         setSubmissionId(existingSub.id);
         setAiUsageCount(existingSub.ai_usage_count || 0);
+        if (existingSub.end_time) {
+          setEndTime(existingSub.end_time);
+          const remaining = Math.max(0, Math.floor((new Date(existingSub.end_time).getTime() - Date.now()) / 1000));
+          setTimeLeft(remaining);
+        } else {
+          setTimeLeft(examData.duration_minutes * 60);
+        }
+      } else {
+        setTimeLeft(examData.duration_minutes * 60);
       }
 
       if (examData.has_categories) {
@@ -166,19 +174,20 @@ export default function ExamScreen() {
   }, [id, user, navigate, strikesStorageKey]);
 
   useEffect(() => {
-    if (timeLeft <= 0 || loading) return;
+    if (loading || !endTime) return;
+    
     const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          submitTest(false, strikes);
-          return 0;
-        }
-        return prev - 1;
-      });
+      const remaining = Math.max(0, Math.floor((new Date(endTime).getTime() - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      
+      if (remaining <= 0) {
+        clearInterval(timer);
+        submitTest(false, strikes);
+      }
     }, 1000);
+    
     return () => clearInterval(timer);
-  }, [timeLeft, loading, strikes]);
+  }, [loading, endTime, strikes]);
 
   const handleCategorySelection = (cat) => {
     setSelectedCategory(cat);
@@ -189,6 +198,8 @@ export default function ExamScreen() {
   const handleStartExam = async () => {
     await requestFullscreen();
     
+    const calculatedEndTime = new Date(Date.now() + (exam.duration_minutes * 60 * 1000)).toISOString();
+
     const payload = {
       exam_id: id,
       student_id: user.id,
@@ -203,7 +214,10 @@ export default function ExamScreen() {
 
     try {
       const { data: existing } = await supabase.from('submissions')
-        .select('id').eq('exam_id', id).eq('student_id', user.id).maybeSingle();
+        .select('id, end_time').eq('exam_id', id).eq('student_id', user.id).maybeSingle();
+
+      const finalEndTime = existing?.end_time || calculatedEndTime;
+      payload.end_time = finalEndTime;
 
       let newSub;
       if (existing) {
@@ -216,7 +230,10 @@ export default function ExamScreen() {
         newSub = data;
       }
       
-      if (newSub) setSubmissionId(newSub.id);
+      if (newSub) {
+        setSubmissionId(newSub.id);
+        setEndTime(newSub.end_time);
+      }
     } catch (err) {
       console.error("Database Error starting exam:", err);
       alert("Error starting exam: " + err.message + "\n\nPlease ensure your user profile is configured correctly.");
@@ -242,10 +259,17 @@ export default function ExamScreen() {
   };
 
   const handleAskAI = async () => {
-    if (aiUsageCount >= 2) return;
+    const maxAttempts = exam?.ai_attempts_limit || 2;
+    const wordLimit = exam?.ai_word_limit || 500;
+    
+    if (aiUsageCount >= maxAttempts) return;
     if (!aiPrompt.trim()) return;
 
-    // 1. Deduct attempt immediately for UI responsiveness
+    const currentPrompt = aiPrompt.trim();
+    
+    setChatHistory(prev => [...prev, { role: 'user', text: currentPrompt }]);
+    setAiPrompt(''); 
+
     const newCount = aiUsageCount + 1;
     setAiUsageCount(newCount);
     if (submissionId) {
@@ -253,30 +277,28 @@ export default function ExamScreen() {
     }
 
     setIsAiLoading(true);
-    setAiResponse('');
 
     const currentQText = questions[currentIndex]?.question_text || '';
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
     if (!geminiKey) {
-      // Rollback on system error
       setAiUsageCount((prev) => prev - 1);
       if (submissionId) supabase.from('submissions').update({ ai_usage_count: aiUsageCount }).eq('id', submissionId);
       
-      // Replaced alert with inline text
-      setAiResponse("⚠️ System Error: AI API Key not configured by administrator.");
+      setChatHistory(prev => [...prev, { role: 'assistant', text: "⚠️ System Error: AI API Key not configured by administrator." }]);
       setIsAiLoading(false);
       return;
     }
 
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey.trim()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `You are an educational assistant helping a student during an assessment. \nCase Study Context: "${currentQText}"\nStudent's Question: "${aiPrompt}"\n\nProvide a helpful hint or structural guidance. DO NOT provide the direct answer. You MUST limit your response to exactly 2 or 3 short sentences.`
+              // NEW: Dynamic Word Limit in Prompt
+              text: `You are an educational assistant helping a student during an assessment. \nCase Study Context: "${currentQText}"\nStudent's Question: "${currentPrompt}"\n\nProvide a helpful hint or structural guidance. DO NOT provide the direct answer. Provide detailed guidance, keeping your response under ${wordLimit} words.`
             }]
           }],
           generationConfig: {
@@ -298,8 +320,7 @@ export default function ExamScreen() {
       
       if (data.candidates && data.candidates.length > 0) {
         const botReply = data.candidates[0].content.parts[0].text;
-        setAiResponse(botReply);
-        setAiPrompt('');
+        setChatHistory(prev => [...prev, { role: 'assistant', text: botReply }]);
       } else {
         throw new Error("No candidates returned from AI.");
       }
@@ -307,17 +328,15 @@ export default function ExamScreen() {
     } catch (err) {
       console.error("AI API Error:", err);
       
-      // 2. ROLLBACK the attempt if the API call failed
       setAiUsageCount((prev) => prev - 1);
       if (submissionId) {
         supabase.from('submissions').update({ ai_usage_count: aiUsageCount }).eq('id', submissionId);
       }
       
-      // Replaced alerts with inline text responses so focus isn't lost
       if (err?.status === 429 || err?.message?.toLowerCase().includes("quota")) {
-        setAiResponse("⏳ The AI Assistant has reached its daily limit and is currently resting. Please answer this question manually!");
+        setChatHistory(prev => [...prev, { role: 'assistant', text: "⏳ The AI Assistant has reached its daily limit and is currently resting. Please answer this question manually!" }]);
       } else {
-        setAiResponse("⚠️ The AI Assistant is temporarily unavailable. Please try again later.");
+        setChatHistory(prev => [...prev, { role: 'assistant', text: "⚠️ The AI Assistant is temporarily unavailable. Please try again later." }]);
       }
     } finally {
       setIsAiLoading(false);
@@ -415,9 +434,11 @@ export default function ExamScreen() {
             <Code2 className="w-7 h-7" />
           </div>
           <div className="text-center space-y-2">
-            <h1 className="text-xl font-bold text-zinc-100 tracking-tight">Select Your Language</h1>
+            <h1 className="text-xl font-bold text-zinc-100 tracking-tight">
+              {exam?.category_selection_title || 'Select Your Track'}
+            </h1>
             <p className="text-zinc-400 text-xs leading-relaxed">
-              This exam has multiple language tracks. Please select the programming language you wish to be tested on. You cannot change this later.
+              {exam?.category_selection_message || 'Please select the track you wish to be tested on. You cannot change this later.'}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3 pt-4">
@@ -473,6 +494,7 @@ export default function ExamScreen() {
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   const isFinalTwoMinutes = timeLeft <= 120;
+  const maxAttempts = exam?.ai_attempts_limit || 2;
 
   const answeredCount = Object.keys(answers).filter((qId) => {
     const val = answers[qId];
@@ -505,18 +527,31 @@ export default function ExamScreen() {
           
           <div className="p-4 bg-purple-50 text-xs font-semibold text-purple-900 border-b border-purple-100 flex justify-between">
             <span>Guidance allowed during this exam</span>
-            <span>Used: {aiUsageCount} / 2</span>
+            {/* NEW: Dynamic Usage Counter */}
+            <span>Used: {aiUsageCount} / {maxAttempts}</span>
           </div>
 
           <div className="flex-1 p-5 overflow-y-auto space-y-4">
-            <div className="text-xs text-zinc-500 italic bg-zinc-50 p-3 rounded-xl border border-zinc-100">
+            <div className="text-xs text-zinc-500 italic bg-zinc-50 p-3 rounded-xl border border-zinc-100 text-center">
               I have full context of Question #{currentIndex + 1}. Ask me for hints or structural guidance regarding this case study.
             </div>
             
-            {aiResponse && (
-              <div className="bg-purple-50 border border-purple-200 text-purple-900 p-4 rounded-xl text-xs leading-relaxed whitespace-pre-wrap">
-                <strong className="block mb-2 font-bold text-purple-950">AI Guide:</strong>
-                {aiResponse}
+            {chatHistory.map((chat, idx) => (
+              <div key={idx} className={`p-4 rounded-xl text-xs leading-relaxed whitespace-pre-wrap ${
+                chat.role === 'user' 
+                  ? 'bg-purple-100 border border-purple-200 text-purple-900 ml-8 rounded-tr-sm shadow-sm' 
+                  : 'bg-zinc-100 border border-zinc-200 text-zinc-800 mr-8 rounded-tl-sm shadow-sm'
+              }`}>
+                <strong className={`block mb-1.5 font-bold ${chat.role === 'user' ? 'text-purple-950' : 'text-zinc-900'}`}>
+                  {chat.role === 'user' ? 'You:' : 'AI Guide:'}
+                </strong>
+                {chat.text}
+              </div>
+            ))}
+            
+            {isAiLoading && (
+              <div className="bg-zinc-100 border border-zinc-200 text-zinc-500 p-4 mr-8 rounded-xl rounded-tl-sm text-xs flex items-center gap-2 w-max">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing context...
               </div>
             )}
           </div>
@@ -525,17 +560,16 @@ export default function ExamScreen() {
             <textarea 
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              disabled={aiUsageCount >= 2 || isAiLoading}
-              placeholder={aiUsageCount >= 2 ? "Usage limit reached." : "Ask for a hint..."}
+              disabled={aiUsageCount >= maxAttempts || isAiLoading}
+              placeholder={aiUsageCount >= maxAttempts ? "Usage limit reached." : "Ask for a hint..."}
               className="w-full resize-none h-20 px-3 py-2 text-xs border border-zinc-300 rounded-lg focus:border-purple-600 focus:outline-none disabled:bg-zinc-100"
             />
             <button 
               onClick={handleAskAI}
-              disabled={aiUsageCount >= 2 || isAiLoading || !aiPrompt.trim()}
+              disabled={aiUsageCount >= maxAttempts || isAiLoading || !aiPrompt.trim()}
               className="w-full py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
             >
-              {isAiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {isAiLoading ? 'Analyzing...' : 'Ask AI'}
+              <Sparkles className="w-4 h-4" /> Ask AI
             </button>
           </div>
         </div>
@@ -593,7 +627,8 @@ export default function ExamScreen() {
                 onClick={() => setShowAiModal(!showAiModal)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 text-xs font-bold transition cursor-pointer"
               >
-                <Sparkles className="w-3.5 h-3.5" /> AI Help ({2 - aiUsageCount} left)
+                {/* NEW: Dynamic Button Counter */}
+                <Sparkles className="w-3.5 h-3.5" /> AI Help ({maxAttempts - aiUsageCount} left)
               </button>
             )}
 

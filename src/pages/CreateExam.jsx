@@ -16,47 +16,36 @@ export default function CreateExam() {
   const [description, setDescription] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [isPublished, setIsPublished] = useState(false);
-  const [showResults, setShowResults] = useState(true);
+  const [showResults, setShowResults] = useState(false); // FIXED: Default unchecked
   const [showDetailedResults, setShowDetailedResults] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  
   const [hasCategories, setHasCategories] = useState(false);
-  const [allowAiAssistant, setAllowAiAssistant] = useState(false); // NEW AI STATE
+  const [categoryTitle, setCategoryTitle] = useState('Select Your Track');
+  const [categoryMessage, setCategoryMessage] = useState('Please select the track you wish to be tested on. You cannot change this later.');
+  
+  const [allowAiAssistant, setAllowAiAssistant] = useState(false);
+  // NEW: Dynamic AI Configuration State
+  const [aiWordLimit, setAiWordLimit] = useState(200);
+  const [aiAttemptsLimit, setAiAttemptsLimit] = useState(2);
 
-  const [questions, setQuestions] = useState([
-    {
-      question_text: '',
-      type: 'single', 
-      options: ['', '', '', ''],
-      correct_answers: [0],
-      marks: 1,
-      negative_marks: 0,
-      category: 'General',
-    },
-  ]);
+  const [questions, setQuestions] = useState([{
+    question_text: '', type: 'single', options: ['', '', '', ''],
+    correct_answers: [0], marks: 1, negative_marks: 0, category: 'General',
+  }]);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const addQuestion = () => {
-    setQuestions([
-      ...questions,
-      {
-        question_text: '',
-        type: 'single',
-        options: ['', '', '', ''],
-        correct_answers: [0],
-        marks: 1,
-        negative_marks: 0,
-        category: 'General',
-      },
-    ]);
+    setQuestions([...questions, {
+      question_text: '', type: 'single', options: ['', '', '', ''],
+      correct_answers: [0], marks: 1, negative_marks: 0, category: 'General',
+    }]);
   };
 
   const removeQuestion = (index) => {
-    if (questions.length === 1) {
-      alert('An assessment must have at least one question.');
-      return;
-    }
+    if (questions.length === 1) return alert('An assessment must have at least one question.');
     setQuestions(questions.filter((_, idx) => idx !== index));
   };
 
@@ -69,7 +58,6 @@ export default function CreateExam() {
   const handleTypeChange = (index, newType) => {
     const updated = [...questions];
     updated[index].type = newType;
-
     if (newType === 'boolean') {
       updated[index].options = ['True', 'False'];
       updated[index].correct_answers = [0];
@@ -92,7 +80,6 @@ export default function CreateExam() {
   const handleCorrectAnswerToggle = (qIndex, oIndex) => {
     const updated = [...questions];
     const currentQ = updated[qIndex];
-
     if (currentQ.type === 'single' || currentQ.type === 'boolean') {
       currentQ.correct_answers = [oIndex];
     } else if (currentQ.type === 'multiple') {
@@ -170,12 +157,7 @@ export default function CreateExam() {
         }
 
         importedQuestions.push({
-          type,
-          category,
-          marks,
-          negative_marks,
-          question_text,
-          options,
+          type, category, marks, negative_marks, question_text, options,
           correct_answers: correct_answers.length ? correct_answers : [0]
         });
       }
@@ -226,7 +208,11 @@ export default function CreateExam() {
           show_detailed_results: showDetailedResults,
           show_leaderboard: showLeaderboard,
           has_categories: hasCategories,
-          allow_ai_assistant: allowAiAssistant, // Save AI toggle to DB
+          category_selection_title: categoryTitle.trim(), 
+          category_selection_message: categoryMessage.trim(),
+          allow_ai_assistant: allowAiAssistant,
+          ai_word_limit: parseInt(aiWordLimit, 10), // Save AI Limit
+          ai_attempts_limit: parseInt(aiAttemptsLimit, 10), // Save AI Count
           created_by: user.id,
         })
         .select()
@@ -329,11 +315,47 @@ export default function CreateExam() {
                 Enable Category Selection (Students pick a language/subject before starting)
               </label>
 
-              {/* NEW AI TOGGLE */}
+              {hasCategories && (
+                <div className="col-span-2 p-5 bg-teal-50/40 border border-teal-200/60 rounded-xl space-y-4 mt-2 animate-in fade-in slide-in-from-top-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-teal-900 uppercase tracking-wider">Selection Screen Title</label>
+                    <input type="text" value={categoryTitle} onChange={(e) => setCategoryTitle(e.target.value)} placeholder="e.g., Select Your Technology Stack" className="w-full px-3.5 py-2.5 bg-white border border-teal-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-teal-700/20 focus:border-teal-700" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-teal-900 uppercase tracking-wider">Selection Screen Message</label>
+                    <textarea rows={2} value={categoryMessage} onChange={(e) => setCategoryMessage(e.target.value)} placeholder="e.g., Please select the technology you wish to be tested on..." className="w-full px-3.5 py-2.5 bg-white border border-teal-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-teal-700/20 focus:border-teal-700 resize-none" />
+                  </div>
+                </div>
+              )}
+
               <label className="flex items-center gap-2 p-3 bg-purple-50 border border-purple-200/80 rounded-xl text-xs font-bold text-purple-900 cursor-pointer col-span-2 mt-2">
                 <input type="checkbox" checked={allowAiAssistant} onChange={(e) => setAllowAiAssistant(e.target.checked)} className="w-4 h-4 accent-purple-700" /> 
-                <Sparkles className="w-4 h-4" /> Enable AI Assistant (Limits students to 3 queries during the case study round)
+                <Sparkles className="w-4 h-4" /> Enable AI Assistant
               </label>
+
+              {/* NEW: DYNAMIC CONFIGURATION FOR AI SETTINGS */}
+              {allowAiAssistant && (
+                <div className="col-span-2 grid grid-cols-2 gap-4 p-5 bg-purple-50/50 border border-purple-200/60 rounded-xl mt-2 animate-in fade-in slide-in-from-top-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-purple-900 uppercase tracking-wider">Attempts per Student</label>
+                    <input 
+                      type="number" min="1" max="10"
+                      value={aiAttemptsLimit} 
+                      onChange={(e) => setAiAttemptsLimit(e.target.value)} 
+                      className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-purple-900 uppercase tracking-wider">Word Limit per Response</label>
+                    <input 
+                      type="number" min="50" step="50"
+                      value={aiWordLimit} 
+                      onChange={(e) => setAiWordLimit(e.target.value)} 
+                      className="w-full px-3.5 py-2.5 bg-white border border-purple-200 rounded-xl text-xs font-medium text-zinc-900 focus:ring-2 focus:ring-purple-700/20 focus:border-purple-700" 
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -356,15 +378,12 @@ export default function CreateExam() {
                     <div className="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1">
                       <Tag className="w-3.5 h-3.5 text-zinc-400" />
                       <input 
-                        type="text" 
-                        placeholder="Language (e.g. Java)" 
-                        value={q.category} 
+                        type="text" placeholder="Category" value={q.category} 
                         onChange={(e) => handleQuestionFieldChange(qIdx, 'category', e.target.value)}
                         className="bg-transparent text-xs font-bold text-zinc-700 w-28 focus:outline-none"
                       />
                     </div>
                   )}
-
                   <select value={q.type} onChange={(e) => handleTypeChange(qIdx, e.target.value)} className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-700">
                     <option value="single">Single Choice</option>
                     <option value="multiple">Multiple Choice</option>
