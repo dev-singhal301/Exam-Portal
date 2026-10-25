@@ -2,8 +2,8 @@ name: Keep Supabase Awake
 
 on:
   schedule:
-    # Runs at 00:00 every 3 days
-    - cron: '0 0 */3 * *'
+    # Runs at 00:00 every 5 days
+    - cron: '0 0 */5 * *'
   workflow_dispatch: # Allows you to run it manually by clicking a button
 
 jobs:
