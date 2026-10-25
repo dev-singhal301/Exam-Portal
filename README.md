@@ -62,10 +62,170 @@ To get a local copy of this project up and running, follow these steps.
    ```
 
 4. **Database Setup (Supabase SQL Editor):**
-   Run the following SQL commands in your Supabase dashboard to ensure your tables have the latest configuration columns:
+   Go to the SQL Editor in your Supabase dashboard, paste the following complete schema query, and click "Run" to initialize your tables, triggers, and security policies:
+
    ```sql
-   -- Submissions Table Updates
-   ALTER TABLE submissions ADD COLUMN IF NOT EXISTS end_time timestamptz;
+   -- =========================================================
+   -- 1. PROFILES & AUTH TRIGGER
+   -- =========================================================
+   CREATE TABLE IF NOT EXISTS public.profiles (
+     id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+     email TEXT NOT NULL,
+     full_name TEXT,
+     role TEXT CHECK (role IN ('admin', 'student')) DEFAULT 'student',
+     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+   );
+
+   CREATE OR REPLACE FUNCTION public.handle_new_user()
+   RETURNS trigger AS $$ BEGIN INSERT INTO public.profiles (id, email, full_name, role) VALUES ( new.id, new.email, COALESCE(new.raw_user_meta_data->>'full_name', 'Student'), COALESCE(new.raw_user_meta_data->>'role', 'student') ) ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, email = EXCLUDED.email; RETURN new; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+   DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+   CREATE TRIGGER on_auth_user_created
+     AFTER INSERT ON auth.users
+     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+   -- =========================================================
+   -- 2. EXAMS TABLE
+   -- =========================================================
+   CREATE TABLE IF NOT EXISTS public.exams (
+     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+     title TEXT NOT NULL,
+     description TEXT,
+     duration_minutes INTEGER NOT NULL,
+     start_window TIMESTAMPTZ,
+     end_window TIMESTAMPTZ,
+     is_published BOOLEAN DEFAULT false,
+     is_ended BOOLEAN DEFAULT false,
+     show_results BOOLEAN DEFAULT false,
+     show_detailed_results BOOLEAN DEFAULT false,
+     show_leaderboard BOOLEAN DEFAULT false,
+     has_categories BOOLEAN DEFAULT false,
+     allow_ai_assistant BOOLEAN DEFAULT false,
+     category_selection_title text DEFAULT 'Select Your Track',
+     category_selection_message text DEFAULT 'Please select the track you wish to be tested on. You cannot change this later.',
+     ai_word_limit integer DEFAULT 500,
+     ai_attempts_limit integer DEFAULT 2,
+     created_by UUID REFERENCES public.profiles(id),
+     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+   );
+
+   -- =========================================================
+   -- 3. QUESTIONS TABLE
+   -- =========================================================
+   CREATE TABLE IF NOT EXISTS public.questions (
+     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+     exam_id UUID REFERENCES public.exams(id) ON DELETE CASCADE NOT NULL,
+     question_text TEXT NOT NULL,
+     type TEXT CHECK (type IN ('single', 'multiple', 'boolean', 'text')) NOT NULL,
+     options JSONB NOT NULL DEFAULT '[]'::jsonb,
+     correct_answers JSONB NOT NULL DEFAULT '[]'::jsonb,
+     marks NUMERIC DEFAULT 1,
+     negative_marks NUMERIC DEFAULT 0,
+     category TEXT DEFAULT 'General',
+     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+   );
+
+   -- =========================================================
+   -- 4. SUBMISSIONS TABLE
+   -- =========================================================
+   CREATE TABLE IF NOT EXISTS public.submissions (
+     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+     exam_id UUID REFERENCES public.exams(id) ON DELETE CASCADE NOT NULL,
+     student_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+     student_name TEXT,
+     student_email TEXT,
+     mobile_number TEXT,
+     department TEXT,
+     academic_year TEXT,
+     selected_category TEXT DEFAULT NULL,
+     answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+     manual_grades JSONB DEFAULT '{}'::jsonb,
+     is_reviewed BOOLEAN DEFAULT false,
+     score NUMERIC DEFAULT 0,
+     violations_count INTEGER DEFAULT 0,
+     is_terminated BOOLEAN DEFAULT false,
+     status TEXT DEFAULT 'in_progress',
+     time_taken_seconds INTEGER DEFAULT 0,
+     ai_usage_count INTEGER DEFAULT 0,
+     is_qualified BOOLEAN DEFAULT NULL,
+     end_time timestamptz,
+     submitted_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+     UNIQUE (exam_id, student_id)
+   );
+
+   -- =========================================================
+   -- 5. PERFORMANCE INDEXES
+   -- =========================================================
+   CREATE INDEX IF NOT EXISTS idx_submissions_exam_student ON public.submissions(exam_id, student_id);
+   CREATE INDEX IF NOT EXISTS idx_submissions_leaderboard ON public.submissions (exam_id, score DESC, time_taken_seconds ASC, submitted_at ASC);
+   CREATE INDEX IF NOT EXISTS idx_questions_exam_id ON public.questions(exam_id);
+   CREATE INDEX IF NOT EXISTS idx_exams_published ON public.exams(is_published);
+   CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
+
+   -- =========================================================
+   -- 6. LEADERBOARD RPC FUNCTION
+   -- =========================================================
+   DROP FUNCTION IF EXISTS public.get_exam_leaderboard;
+   CREATE OR REPLACE FUNCTION public.get_exam_leaderboard(target_exam_id UUID)
+   RETURNS TABLE (
+       student_id UUID,
+       student_name TEXT,
+       score NUMERIC,
+       time_taken_seconds INTEGER
+   ) 
+   LANGUAGE sql
+   SECURITY DEFINER 
+   AS $$ SELECT student_id, student_name, score, time_taken_seconds FROM public.submissions WHERE exam_id = target_exam_id AND is_terminated = false ORDER BY score DESC, time_taken_seconds ASC, submitted_at ASC; $$;
+
+   -- =========================================================
+   -- 7. ROW-LEVEL SECURITY (RLS) POLICIES
+   -- =========================================================
+   ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.exams ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.submissions ENABLE ROW LEVEL SECURITY;
+
+   DROP POLICY IF EXISTS "Allow read profiles" ON public.profiles;
+   DROP POLICY IF EXISTS "Allow update self" ON public.profiles;
+   DROP POLICY IF EXISTS "Allow read published exams" ON public.exams;
+   DROP POLICY IF EXISTS "Allow admin modify exams" ON public.exams;
+   DROP POLICY IF EXISTS "Allow read questions" ON public.questions;
+   DROP POLICY IF EXISTS "Allow admin modify questions" ON public.questions;
+   DROP POLICY IF EXISTS "Allow student insert/view own" ON public.submissions;
+
+   CREATE POLICY "Allow read profiles" ON public.profiles 
+     FOR SELECT TO authenticated USING (true);
+
+   CREATE POLICY "Allow update self" ON public.profiles 
+     FOR UPDATE TO authenticated USING (auth.uid() = id);
+
+   CREATE POLICY "Allow read published exams" ON public.exams 
+     FOR SELECT TO authenticated 
+     USING (is_published = true OR EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'));
+
+   CREATE POLICY "Allow admin modify exams" ON public.exams 
+     FOR ALL TO authenticated 
+     USING (EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'))
+     WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'));
+
+   CREATE POLICY "Allow read questions" ON public.questions 
+     FOR SELECT TO authenticated USING (true);
+
+   CREATE POLICY "Allow admin modify questions" ON public.questions 
+     FOR ALL TO authenticated 
+     USING (EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'))
+     WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'));
+
+   CREATE POLICY "Allow student insert/view own" ON public.submissions 
+     FOR ALL TO authenticated 
+     USING (auth.uid() = student_id OR EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'))
+     WITH CHECK (auth.uid() = student_id OR EXISTS (SELECT 1 FROM public.profiles WHERE public.profiles.id = auth.uid() AND public.profiles.role = 'admin'));
+
+   -- =========================================================
+   -- 8. REALTIME REPLICATION
+   -- =========================================================
+   DO $$ BEGIN IF NOT EXISTS ( SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'submissions' ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE public.submissions; END IF; END $$;
+   ```
    
    -- Exams Table Updates (Admin Configurations)
    ALTER TABLE exams 

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import QuestionPalette from '../components/QuestionPalette';
-import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send, AlertTriangle, X, Code2, Sparkles, Loader2 } from 'lucide-react';
+import { AlertOctagon, Clock, Maximize2, ArrowRight, ArrowLeft, Send, AlertTriangle, X, Code2, Sparkles, Loader2, Eraser } from 'lucide-react';
 
 export default function ExamScreen() {
   const { id } = useParams();
@@ -258,6 +258,15 @@ export default function ExamScreen() {
     localStorage.setItem(`exam_${id}_${user.id}`, JSON.stringify(nextAnswers));
   };
 
+  // --- NEW CLEAR SELECTION FUNCTION ---
+  const handleClearSelection = () => {
+    const qId = questions[currentIndex].id;
+    const nextAnswers = { ...answers };
+    delete nextAnswers[qId];
+    setAnswers(nextAnswers);
+    localStorage.setItem(`exam_${id}_${user.id}`, JSON.stringify(nextAnswers));
+  };
+
   const handleAskAI = async () => {
     const maxAttempts = exam?.ai_attempts_limit || 2;
     const wordLimit = exam?.ai_word_limit || 500;
@@ -297,7 +306,6 @@ export default function ExamScreen() {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              // NEW: Dynamic Word Limit in Prompt
               text: `You are an educational assistant helping a student during an assessment. \nCase Study Context: "${currentQText}"\nStudent's Question: "${currentPrompt}"\n\nProvide a helpful hint or structural guidance. DO NOT provide the direct answer. Provide detailed guidance, keeping your response under ${wordLimit} words.`
             }]
           }],
@@ -510,6 +518,10 @@ export default function ExamScreen() {
     paletteAnswers[idx] = answers[q.id];
   });
 
+  // Check if current question has an answer recorded
+  const currentAnswer = answers[currentQ.id];
+  const hasAnswer = currentAnswer !== undefined && (!Array.isArray(currentAnswer) || currentAnswer.length > 0);
+
   return (
     <div className="min-h-screen bg-zinc-100 flex flex-col select-none relative">
       {/* AI Assistant Drawer */}
@@ -527,7 +539,6 @@ export default function ExamScreen() {
           
           <div className="p-4 bg-purple-50 text-xs font-semibold text-purple-900 border-b border-purple-100 flex justify-between">
             <span>Guidance allowed during this exam</span>
-            {/* NEW: Dynamic Usage Counter */}
             <span>Used: {aiUsageCount} / {maxAttempts}</span>
           </div>
 
@@ -627,7 +638,6 @@ export default function ExamScreen() {
                 onClick={() => setShowAiModal(!showAiModal)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 text-xs font-bold transition cursor-pointer"
               >
-                {/* NEW: Dynamic Button Counter */}
                 <Sparkles className="w-3.5 h-3.5" /> AI Help ({maxAttempts - aiUsageCount} left)
               </button>
             )}
@@ -644,7 +654,7 @@ export default function ExamScreen() {
         <div className="lg:col-span-3 space-y-6">
           <div className="bg-white border border-zinc-200/80 rounded-2xl p-7 shadow-xs space-y-6">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
-              <span className="text-xs font-bold text-teal-800 uppercase tracking-wider bg-teal-50 px-2.5 py-1 rounded-md">Question {currentIndex + 1} of {questions.length} • {currentQ.type}</span>
+              <span className="text-xs font-bold text-teal-800 uppercase tracking-wider bg-teal-50 px-2.5 py-1 rounded-md">Question {currentIndex + 1} of {questions.length} - {currentQ.type}</span>
               <span className="text-[11px] font-bold text-zinc-500 tracking-wide bg-zinc-50 px-2.5 py-1 border border-zinc-200 rounded-md">[{currentQ.marks} {currentQ.marks === 1 ? 'Mark' : 'Marks'}]</span>
             </div>
 
@@ -674,10 +684,29 @@ export default function ExamScreen() {
           </div>
 
           <div className="flex justify-between items-center pt-1">
-            <button disabled={currentIndex === 0} onClick={() => setCurrentIndex((p) => p - 1)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-zinc-300 font-semibold text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-30 disabled:pointer-events-none transition text-xs cursor-pointer">
+            <button 
+              disabled={currentIndex === 0} 
+              onClick={() => setCurrentIndex((p) => p - 1)} 
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-zinc-300 font-semibold text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-30 disabled:pointer-events-none transition text-xs cursor-pointer"
+            >
               <ArrowLeft className="w-4 h-4" /> Previous Question
             </button>
-            <button disabled={currentIndex === questions.length - 1} onClick={() => setCurrentIndex((p) => p + 1)} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none text-white transition text-xs shadow-xs cursor-pointer">
+
+            {/* NEW CLEAR SELECTION BUTTON */}
+            {hasAnswer && (
+              <button 
+                onClick={handleClearSelection}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-red-200 font-semibold text-red-600 bg-red-50 hover:bg-red-100 transition text-xs cursor-pointer"
+              >
+                <Eraser className="w-4 h-4" /> Clear Selection
+              </button>
+            )}
+
+            <button 
+              disabled={currentIndex === questions.length - 1} 
+              onClick={() => setCurrentIndex((p) => p + 1)} 
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none text-white transition text-xs shadow-xs cursor-pointer"
+            >
               Next Question <ArrowRight className="w-4 h-4" />
             </button>
           </div>
