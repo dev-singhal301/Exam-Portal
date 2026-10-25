@@ -248,11 +248,30 @@ The platform features an optional AI guide to assist students during complex des
 3. When creating an exam in the Admin dashboard, check the **"Enable AI Assistant"** box to reveal configurations for the word limit and maximum queries per student.
 
 ## 📸 Preview
-*(Add your screenshots here)*
-- **Candidate Exam Screen (Fullscreen Lock)**
-- **Admin Exam Creation & CSV Import**
-- **AI Assistant Chat Drawer**
-- **Dynamic Category Selection**
+
+**1. Live Examination Interface**
+*Candidates experience a clean, distraction-free environment with a live overview palette, category indicators, and a secure countdown timer.*
+![Live Exam Interface](docs/live-exam-interface.png)
+
+**2. Anti-Cheat Security System**
+*Strict fullscreen enforcement logs violations if a candidate navigates away or opens a new tab, culminating in automatic disqualification.*
+![Anti Cheat Warning](docs/anti-cheat-warning.png)
+
+**3. Advanced Assessment Configurations**
+*Admins have complete control over exam parameters, including AI Assistant rate limits, category toggles, and duration.*
+![Exam Settings](docs/exam-configuration.png)
+
+**4. Automated Leaderboards & Cutoffs**
+*Real-time rankings based on score and completion time, featuring a built-in cutoff tool to qualify top candidates for subsequent rounds.*
+![Leaderboard](docs/dynamic-leaderboard.png)
+
+**5. Dynamic Track Selection**
+*Admins can configure mandatory category selections before an exam begins, securely routing candidates to specific technology tracks.*
+![Track Selection](docs/track-selection.png)
+
+**6. Admin Examination Console**
+*A comprehensive dashboard for instructors to manage assessment lifecycles, toggle answer key visibility, and monitor live statuses.*
+![Admin Console](docs/admin-dashboard.png)
 
 ## 🤝 Contributing
 We welcome contributions to this project. Please follow these steps to contribute:
